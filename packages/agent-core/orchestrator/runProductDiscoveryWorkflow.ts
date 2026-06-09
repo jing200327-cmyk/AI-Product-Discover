@@ -19,6 +19,8 @@ import type {
   DiscoveryClarificationQuestion,
   DiscoveryField,
   DiscoveryResearchPlan,
+  EvaluationResult,
+  LayeredEvidenceItem,
   OutcomeItem,
   PainStrength,
   ProblemItem,
@@ -52,7 +54,7 @@ import {
   step12MvpPrdPrompt
 } from "../prompts";
 import { createDefaultLlmProvider, createDefaultModelRouter } from "../llm";
-import { inputParserNode, type AgentNodeDeps } from "../nodes";
+import { evaluationNode, inputParserNode, type AgentNodeDeps } from "../nodes";
 import { createInitialAgentState } from "../state/createInitialState";
 import { createDefaultToolRegistry } from "../tools";
 import type { MockSearchOutput } from "../tools/mockSearchTool";
@@ -2129,6 +2131,212 @@ type Step8AgentInput = {
   researchPlan: Step7ResearchPlanResult;
 };
 
+const isRealSource = (source: SourceItem): boolean =>
+  source.sourceType !== "mock_search" &&
+  !source.sourceType.includes("untrusted") &&
+  !source.url?.startsWith("https://mock.local");
+
+function createLayeredEvidence(input: {
+  id: string;
+  claim: string;
+  evidence: string[];
+  sources?: SourceItem[];
+  sourceUrl?: string;
+  preferredLayer?: LayeredEvidenceItem["layer"];
+  confidence: LayeredEvidenceItem["confidence"];
+}): LayeredEvidenceItem {
+  const realSources = (input.sources ?? []).filter(isRealSource).slice(0, 3);
+  const sourceUrls = [
+    ...(input.sourceUrl ? [input.sourceUrl] : []),
+    ...realSources.flatMap((source) => (source.url ? [source.url] : []))
+  ].filter((url, index, items) => items.indexOf(url) === index);
+  const hasVerifiedSource = sourceUrls.length > 0;
+  const layer =
+    input.preferredLayer ??
+    (hasVerifiedSource ? "fact" : input.confidence === "low" ? "assumption" : "inference");
+
+  return {
+    id: input.id,
+    claim: input.claim,
+    layer,
+    evidence: input.evidence,
+    sourceIds: realSources.map((source) => source.id),
+    sourceUrls,
+    confidence: hasVerifiedSource && input.confidence === "low" ? "medium" : input.confidence,
+    validationStatus:
+      layer === "fact" && hasVerifiedSource
+        ? "verified"
+        : layer === "assumption"
+          ? "needs_validation"
+          : "inferred"
+  };
+}
+
+function attachStep8EvidenceLayers(
+  result: Step8MarketAnalysisResult,
+  sources: SourceItem[]
+): Step8MarketAnalysisResult {
+  const analysis = result.marketAnalysis;
+  const evidenceLayers: LayeredEvidenceItem[] = [
+    createLayeredEvidence({
+      id: "market_industry_background",
+      claim: analysis.industryBackground.backgroundSummary,
+      evidence: analysis.industryBackground.keyChanges,
+      sources,
+      confidence: analysis.industryBackground.confidence
+    }),
+    ...analysis.trends.map((trend) =>
+      createLayeredEvidence({
+        id: `market_${trend.id}`,
+        claim: trend.trend,
+        evidence: [trend.description, trend.impactOnProduct],
+        sources,
+        confidence: trend.confidence
+      })
+    ),
+    ...analysis.opportunities.map((opportunity) =>
+      createLayeredEvidence({
+        id: `market_${opportunity.id}`,
+        claim: opportunity.opportunity,
+        evidence: [opportunity.description, opportunity.whyNow],
+        sources,
+        preferredLayer: "inference",
+        confidence: analysis.confidence
+      })
+    ),
+    ...analysis.assumptions.map((assumption) =>
+      createLayeredEvidence({
+        id: `market_${assumption.id}`,
+        claim: assumption.assumption,
+        evidence: [assumption.whyImportant, assumption.validationMethod],
+        preferredLayer: "assumption",
+        confidence: "low"
+      })
+    )
+  ];
+
+  return Step8MarketAnalysisResultSchema.parse({
+    ...result,
+    marketAnalysis: {
+      ...analysis,
+      evidenceLayers
+    }
+  });
+}
+
+function attachStep9EvidenceLayers(
+  result: Step9CompetitorIdentificationResult,
+  sources: SourceItem[]
+): Step9CompetitorIdentificationResult {
+  const analysis = result.competitorIdentification;
+  const competitors = [
+    ...analysis.directCompetitors,
+    ...analysis.indirectCompetitors,
+    ...analysis.substituteSolutions
+  ];
+  const evidenceLayers = competitors.map((competitor) =>
+    createLayeredEvidence({
+      id: `competitor_${competitor.id}`,
+      claim: `${competitor.name}：${competitor.positioning}`,
+      evidence: [
+        ...competitor.evidence,
+        `分类依据：${competitor.relationReason}`,
+        `能力判断：${competitor.coreCapabilities.join("、")}`
+      ],
+      sources,
+      sourceUrl: competitor.sourceUrl,
+      preferredLayer:
+        competitor.verificationStatus === "verified"
+          ? "fact"
+          : competitor.verificationStatus === "needs_validation"
+            ? "assumption"
+            : "inference",
+      confidence: competitor.confidence
+    })
+  );
+
+  return Step9CompetitorIdentificationResultSchema.parse({
+    ...result,
+    competitorIdentification: {
+      ...analysis,
+      evidenceLayers
+    }
+  });
+}
+
+function attachStep10EvidenceLayers(
+  result: Step10CompetitorAnalysisTableResult,
+  sources: SourceItem[]
+): Step10CompetitorAnalysisTableResult {
+  const analysis = result.competitorAnalysisTable;
+  const evidenceLayers = analysis.rows.map((row) =>
+    createLayeredEvidence({
+      id: `competitor_table_${row.id}`,
+      claim: `${row.name}：${row.positioning}`,
+      evidence: [
+        ...row.evidence,
+        `核心功能：${row.coreFunctions.join("、")}`,
+        `差异化机会：${row.differentiationOpportunity}`
+      ],
+      sources,
+      sourceUrl: row.sourceUrl,
+      preferredLayer:
+        row.verificationStatus === "verified"
+          ? "fact"
+          : row.verificationStatus === "needs_validation"
+            ? "assumption"
+            : "inference",
+      confidence: row.confidence
+    })
+  );
+
+  return Step10CompetitorAnalysisTableResultSchema.parse({
+    ...result,
+    competitorAnalysisTable: {
+      ...analysis,
+      evidenceLayers
+    }
+  });
+}
+
+function attachSupplementalSourcesToProfile(
+  profile: ProductDiscoveryProfile,
+  sources: SourceItem[],
+  round: number
+): ProductDiscoveryProfile {
+  if (!profile.step8MarketAnalysis || sources.length === 0) {
+    return profile;
+  }
+
+  const supplementalLayers: LayeredEvidenceItem[] = sources.slice(0, 6).map(
+    (source, index) => ({
+      id: `supplemental_round_${round}_source_${index + 1}`,
+      claim: `补充研究来源：${source.title}`,
+      layer: "inference",
+      evidence: [source.summary],
+      sourceIds: [source.id],
+      sourceUrls: source.url ? [source.url] : [],
+      confidence: source.relevanceScore >= 0.75 ? "medium" : "low",
+      validationStatus: "inferred"
+    })
+  );
+  const step8MarketAnalysis = Step8MarketAnalysisResultSchema.parse({
+    ...profile.step8MarketAnalysis,
+    marketAnalysis: {
+      ...profile.step8MarketAnalysis.marketAnalysis,
+      evidenceLayers: [
+        ...(profile.step8MarketAnalysis.marketAnalysis.evidenceLayers ?? []),
+        ...supplementalLayers
+      ]
+    }
+  });
+
+  return ProductDiscoveryProfileSchema.parse({
+    ...profile,
+    step8MarketAnalysis
+  });
+}
+
 function createJobGreetingStep8(input: Step8AgentInput): Step8MarketAnalysisResult {
   return Step8MarketAnalysisResultSchema.parse({
     step: "step8",
@@ -2466,9 +2674,10 @@ async function runStep8MarketAnalysisAgent(
     });
     const parsed = extractJsonObject(output);
 
-    return parsed ? Step8MarketAnalysisResultSchema.parse(parsed) : fallback;
+    const result = parsed ? Step8MarketAnalysisResultSchema.parse(parsed) : fallback;
+    return attachStep8EvidenceLayers(result, state.sources);
   } catch {
-    return fallback;
+    return attachStep8EvidenceLayers(fallback, state.sources);
   }
 }
 
@@ -2783,11 +2992,12 @@ async function runStep9CompetitorIdentificationAgent(
     });
     const parsed = extractJsonObject(output);
 
-    return parsed
+    const result = parsed
       ? Step9CompetitorIdentificationResultSchema.parse(parsed)
       : fallback;
+    return attachStep9EvidenceLayers(result, state.sources);
   } catch {
-    return fallback;
+    return attachStep9EvidenceLayers(fallback, state.sources);
   }
 }
 
@@ -2939,11 +3149,12 @@ async function runStep10CompetitorAnalysisTableAgent(
     });
     const parsed = extractJsonObject(output);
 
-    return parsed
+    const result = parsed
       ? Step10CompetitorAnalysisTableResultSchema.parse(parsed)
       : fallback;
+    return attachStep10EvidenceLayers(result, state.sources);
   } catch {
-    return fallback;
+    return attachStep10EvidenceLayers(fallback, state.sources);
   }
 }
 
@@ -4111,7 +4322,8 @@ function createSupplementalResearchBase(): SupplementalResearchResult {
 }
 
 function collectSupplementalResearchQueries(
-  profile: ProductDiscoveryProfile
+  profile: ProductDiscoveryProfile,
+  evaluation?: EvaluationResult | null
 ): SupplementalResearchQuery[] {
   const queries: SupplementalResearchQuery[] = [];
   const rawIdea = profile.rawIdea.value;
@@ -4132,6 +4344,26 @@ function collectSupplementalResearchQueries(
       });
     }
   };
+
+  if (evaluation && evaluation.credibilityScore < 75) {
+    for (const reason of evaluation.dimensionDetails.credibility.deductions) {
+      addQuery(
+        `${rawIdea} ${reason}`,
+        `评测可信度得分 ${evaluation.credibilityScore}，需要补充来源证据：${reason}`,
+        "evaluation_gap"
+      );
+    }
+  }
+
+  if (evaluation && evaluation.differentiationScore < 75) {
+    for (const reason of evaluation.dimensionDetails.differentiation.deductions) {
+      addQuery(
+        `${rawIdea} 竞品 替代方案 ${reason}`,
+        `评测差异化得分 ${evaluation.differentiationScore}，需要补充竞品研究：${reason}`,
+        "evaluation_gap"
+      );
+    }
+  }
 
   for (const gap of profile.step9CompetitorIdentification?.competitorIdentification
     .researchGaps ?? []) {
@@ -4184,9 +4416,12 @@ function summarizeSupplementalFindings(sources: SourceItem[]): string[] {
 }
 
 function getSupplementalUnresolvedQuestions(
-  profile: ProductDiscoveryProfile
+  profile: ProductDiscoveryProfile,
+  evaluation?: EvaluationResult | null
 ): string[] {
   return [
+    ...(evaluation?.dimensionDetails.credibility.deductions ?? []),
+    ...(evaluation?.dimensionDetails.differentiation.deductions ?? []),
     ...(profile.step9CompetitorIdentification?.competitorIdentification
       .researchGaps ?? []),
     ...(profile.step10CompetitorAnalysisTable?.competitorAnalysisTable
@@ -4194,6 +4429,27 @@ function getSupplementalUnresolvedQuestions(
     ...(profile.step11UserPersonas?.userPersonas.researchGaps ?? []),
     ...(profile.step12MvpPrd?.mvpPrd.risks ?? [])
   ].slice(0, 6);
+}
+
+export function shouldTriggerSupplementalResearchFromEvaluation(
+  state: AgentState
+): boolean {
+  const evaluation = state.evaluation;
+  const research = state.productDiscoveryProfile?.supplementalResearch;
+
+  if (!evaluation || !state.productDiscoveryProfile?.step7ResearchPlan) {
+    return false;
+  }
+
+  if ((research?.rounds.length ?? 0) >= (research?.maxRounds ?? 2)) {
+    return false;
+  }
+
+  return (
+    evaluation.credibilityScore < 75 ||
+    evaluation.differentiationScore < 70 ||
+    evaluation.dimensionDetails.credibility.deductions.length > 0
+  );
 }
 
 export async function runSupplementalResearchRound(
@@ -4228,7 +4484,7 @@ export async function runSupplementalResearchRound(
   }
 
   const round = currentResearch.rounds.length + 1;
-  const queries = collectSupplementalResearchQueries(profile);
+  const queries = collectSupplementalResearchQueries(profile, state.evaluation);
   let nextState = applyTrace(
     state,
     createTraceEvent({
@@ -4275,7 +4531,7 @@ export async function runSupplementalResearchRound(
     queries,
     sources: roundSources,
     findings: summarizeSupplementalFindings(roundSources),
-    unresolvedQuestions: getSupplementalUnresolvedQuestions(profile),
+    unresolvedQuestions: getSupplementalUnresolvedQuestions(profile, state.evaluation),
     status,
     createdAt: nowIso()
   } satisfies SupplementalResearchResult["rounds"][number];
@@ -4288,8 +4544,13 @@ export async function runSupplementalResearchRound(
         ? "已完成第 2 轮补充研究，建议进入人工判断或用户访谈。"
         : "如仍存在低置信度或关键研究缺口，可再运行一轮补充研究。"
   };
+  const profileWithSupplementalEvidence = attachSupplementalSourcesToProfile(
+    profile,
+    roundSources,
+    round
+  );
   const nextProfile = ProductDiscoveryProfileSchema.parse({
-    ...profile,
+    ...profileWithSupplementalEvidence,
     supplementalResearch: nextResearch
   });
 
@@ -4297,6 +4558,8 @@ export async function runSupplementalResearchRound(
     ...nextState,
     productDiscoveryProfile: nextProfile,
     sources,
+    evaluation: state.evaluation ? null : state.evaluation,
+    rewriteRequired: state.evaluation ? false : state.rewriteRequired,
     trace: [...nextState.trace, toolResult.traceEvent],
     errors: toolResult.error ? [...nextState.errors, toolResult.error] : nextState.errors,
     updatedAt: nowIso()
@@ -4965,6 +5228,14 @@ export async function continueProductDiscoveryOneStep(
 
   if (!profile.step12MvpPrd) {
     return runProductDiscoveryStep12Only(state, options);
+  }
+
+  if (!state.evaluation) {
+    return evaluationNode(state, mergeDeps(options.deps));
+  }
+
+  if (shouldTriggerSupplementalResearchFromEvaluation(state)) {
+    return runSupplementalResearchRound(state, options);
   }
 
   return state;

@@ -57,6 +57,19 @@ export type ConfidenceLevel = "low" | "medium" | "high";
 
 export type Confidence = ConfidenceLevel;
 
+export type EvidenceLayer = "fact" | "inference" | "assumption";
+
+export type LayeredEvidenceItem = {
+  id: string;
+  claim: string;
+  layer: EvidenceLayer;
+  evidence: string[];
+  sourceIds: string[];
+  sourceUrls: string[];
+  confidence: Confidence;
+  validationStatus: "verified" | "inferred" | "needs_validation";
+};
+
 export type EvidenceSource =
   | "user_input"
   | "keyword"
@@ -534,6 +547,7 @@ export type Step8MarketAnalysisResult = {
     userDemands: MarketUserDemand[];
     opportunities: MarketOpportunity[];
     assumptions: MarketAssumption[];
+    evidenceLayers?: LayeredEvidenceItem[];
     confidence: Confidence;
   };
 };
@@ -581,6 +595,7 @@ export type Step9CompetitorIdentificationResult = {
     substituteSolutions: CompetitorIdentificationItem[];
     differentiationOpportunities: DifferentiationOpportunity[];
     researchGaps: string[];
+    evidenceLayers?: LayeredEvidenceItem[];
     confidence: Confidence;
   };
 };
@@ -616,6 +631,7 @@ export type Step10CompetitorAnalysisTableResult = {
     keyFindings: string[];
     recommendedFocus: string[];
     researchGaps: string[];
+    evidenceLayers?: LayeredEvidenceItem[];
     confidence: Confidence;
   };
 };
@@ -716,6 +732,7 @@ export type SupplementalResearchQuery = {
     | "low_confidence"
     | "assumption"
     | "competitor_gap"
+    | "evaluation_gap"
     | "manual_followup";
 };
 
@@ -1229,13 +1246,29 @@ export type PageSpec = {
   dataNeeded: string[];
 };
 
+export type EvaluationDimensionResult = {
+  score: number;
+  weight: number;
+  rationale: string;
+  deductions: string[];
+  recommendations: string[];
+};
+
 export type EvaluationResult = {
   totalScore: number;
-  marketScore: number;
-  userPainScore: number;
+  completenessScore: number;
+  credibilityScore: number;
   differentiationScore: number;
-  feasibilityScore: number;
-  evidenceQualityScore: number;
+  developabilityScore: number;
+  clarityScore: number;
+  dimensionDetails: {
+    completeness: EvaluationDimensionResult;
+    credibility: EvaluationDimensionResult;
+    differentiation: EvaluationDimensionResult;
+    developability: EvaluationDimensionResult;
+    clarity: EvaluationDimensionResult;
+  };
+  graderMode: "deterministic" | "hybrid";
   strengths: string[];
   deductionReasons: string[];
   risks: string[];

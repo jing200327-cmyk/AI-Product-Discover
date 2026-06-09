@@ -239,11 +239,11 @@ ${state.pages
 ## 评测结果
 
 - 总分：${state.evaluation?.totalScore ?? 0}
-- 市场机会分：${state.evaluation?.marketScore ?? 0}
-- 用户痛点分：${state.evaluation?.userPainScore ?? 0}
+- 完整性：${state.evaluation?.completenessScore ?? 0}
+- 可信度：${state.evaluation?.credibilityScore ?? 0}
 - 差异化分：${state.evaluation?.differentiationScore ?? 0}
-- 可行性分：${state.evaluation?.feasibilityScore ?? 0}
-- 证据质量分：${state.evaluation?.evidenceQualityScore ?? 0}
+- 可开发性：${state.evaluation?.developabilityScore ?? 0}
+- 表达清晰度：${state.evaluation?.clarityScore ?? 0}
 - 扣分原因：${state.evaluation?.deductionReasons.join("；") ?? "暂无"}
 - 优化建议：${state.evaluation?.recommendations.join("；") ?? "暂无"}
 `;

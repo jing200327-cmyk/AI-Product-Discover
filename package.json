@@ -8,6 +8,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "validate:state": "tsx packages/agent-core/state/createInitialState.spec.ts",
+    "validate:evaluation": "tsx packages/agent-core/evaluation/scoreProductDiscoveryOutput.spec.ts",
     "demo:mock-agent": "tsx packages/agent-core/demo/runMockAgent.ts",
     "demo:agent": "tsx packages/agent-core/demo/runOrchestratedAgent.ts",
     "test:deepseek": "tsx packages/agent-core/demo/testDeepSeekProvider.ts",

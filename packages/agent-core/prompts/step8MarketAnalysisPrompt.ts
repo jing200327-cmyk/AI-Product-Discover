@@ -92,5 +92,12 @@ JSON 格式：
 }
 
 输入：
+证据分层要求：
+- 对关键行业背景、趋势、市场机会和假设生成 evidenceLayers。
+- layer 只能是 fact、inference、assumption。
+- fact 必须有可核验 sourceUrls 或 sourceIds；没有来源时不得标记为 fact。
+- inference 必须说明判断依据；assumption 必须说明后续验证方式。
+- 不得把 Mock Search、模型常识或未经验证的市场判断标记为事实。
+
 ${JSON.stringify(input, null, 2)}`;
 }

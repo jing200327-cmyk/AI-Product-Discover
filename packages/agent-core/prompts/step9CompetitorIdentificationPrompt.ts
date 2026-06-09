@@ -69,5 +69,11 @@ export function buildPrompt(input: unknown): string {
 }
 
 输入：
+证据分层要求：
+- 对每个竞品的定位、目标用户、功能与分类判断生成 evidenceLayers。
+- layer 只能是 fact、inference、assumption。
+- verified 结论必须提供官方或可靠 sourceUrl；没有来源时只能标记 inferred 或 needs_validation。
+- 竞品弱点和差异化机会通常属于推断，除非存在明确来源支持。
+
 ${JSON.stringify(input, null, 2)}`;
 }

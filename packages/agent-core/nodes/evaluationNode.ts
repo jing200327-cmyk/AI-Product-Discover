@@ -1,7 +1,88 @@
-import type { AgentState, EvaluationResult } from "../../shared/types";
+import { EvaluationResultSchema } from "../../shared/schemas";
+import type {
+  AgentState,
+  EvaluationDimensionResult,
+  EvaluationResult
+} from "../../shared/types";
+import { scoreProductDiscoveryOutput } from "../evaluation/scoreProductDiscoveryOutput";
 import { evaluationPrompt } from "../prompts";
 import { completeWithPrompt, runAgentNode } from "./nodeRuntime";
 import type { AgentNodeDeps } from "./types";
+
+const blendDimension = (
+  baseline: EvaluationDimensionResult,
+  judge: EvaluationDimensionResult
+): EvaluationDimensionResult => ({
+  score: Math.round(baseline.score * 0.7 + judge.score * 0.3),
+  weight: baseline.weight,
+  rationale: judge.rationale,
+  deductions: [...new Set([...baseline.deductions, ...judge.deductions])],
+  recommendations: [
+    ...new Set([...baseline.recommendations, ...judge.recommendations])
+  ]
+});
+
+const parseJudgeEvaluation = (raw: string): EvaluationResult | null => {
+  try {
+    const parsed = EvaluationResultSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+};
+
+const mergeEvaluation = (
+  baseline: EvaluationResult,
+  judge: EvaluationResult
+): EvaluationResult => {
+  const dimensionDetails = {
+    completeness: blendDimension(
+      baseline.dimensionDetails.completeness,
+      judge.dimensionDetails.completeness
+    ),
+    credibility: blendDimension(
+      baseline.dimensionDetails.credibility,
+      judge.dimensionDetails.credibility
+    ),
+    differentiation: blendDimension(
+      baseline.dimensionDetails.differentiation,
+      judge.dimensionDetails.differentiation
+    ),
+    developability: blendDimension(
+      baseline.dimensionDetails.developability,
+      judge.dimensionDetails.developability
+    ),
+    clarity: blendDimension(
+      baseline.dimensionDetails.clarity,
+      judge.dimensionDetails.clarity
+    )
+  };
+  const totalScore = Math.round(
+    Object.values(dimensionDetails).reduce(
+      (sum, dimension) => sum + dimension.score * (dimension.weight / 100),
+      0
+    )
+  );
+
+  return {
+    totalScore,
+    completenessScore: dimensionDetails.completeness.score,
+    credibilityScore: dimensionDetails.credibility.score,
+    differentiationScore: dimensionDetails.differentiation.score,
+    developabilityScore: dimensionDetails.developability.score,
+    clarityScore: dimensionDetails.clarity.score,
+    dimensionDetails,
+    graderMode: "hybrid",
+    strengths: [...new Set([...baseline.strengths, ...judge.strengths])],
+    deductionReasons: [
+      ...new Set([...baseline.deductionReasons, ...judge.deductionReasons])
+    ],
+    risks: [...new Set([...baseline.risks, ...judge.risks])],
+    recommendations: [
+      ...new Set([...baseline.recommendations, ...judge.recommendations])
+    ]
+  };
+};
 
 export async function evaluationNode(
   state: AgentState,
@@ -14,57 +95,39 @@ export async function evaluationNode(
     traceStage: "evaluation",
     input: {
       context: state.context,
+      sources: state.sources,
       evidence: state.evidence,
       competitors: state.competitors,
-      mvpPrd: state.mvpPrd
+      personas: state.personas,
+      mvpPrd: state.mvpPrd,
+      pages: state.pages,
+      productDiscoveryProfile: state.productDiscoveryProfile
     },
     execute: async () => {
-      await completeWithPrompt(
+      const baseline = scoreProductDiscoveryOutput(state);
+      const rawJudgeResult = await completeWithPrompt(
         deps,
         state,
         "evaluateProductIdea",
         evaluationPrompt.buildPrompt({
           context: state.context,
+          sources: state.sources,
           evidence: state.evidence,
           competitors: state.competitors,
-          mvpPrd: state.mvpPrd
+          personas: state.personas,
+          mvpPrd: state.mvpPrd,
+          pages: state.pages,
+          productDiscoveryProfile: state.productDiscoveryProfile
         })
       );
-
-      const evidenceQualityScore = state.sources.length >= 3 ? 76 : 58;
-      const totalScore = Math.round((78 + 82 + 72 + 80 + evidenceQualityScore) / 5);
-      const evaluation: EvaluationResult = {
-        totalScore,
-        marketScore: 78,
-        userPainScore: 82,
-        differentiationScore: 72,
-        feasibilityScore: 80,
-        evidenceQualityScore,
-        strengths: [
-          "MVP 链路清晰，能从想法推进到 PRD、页面结构和评分",
-          "Trace 机制有利于解释每个节点的输入输出",
-          "Mock Provider 让项目在无 API Key 情况下可运行"
-        ],
-        deductionReasons: [
-          "当前研究来源来自 Mock Search，不能代表真实市场事实",
-          "竞品分析以类别为主，缺少真实竞品逐项证据",
-          "用户画像尚未经过访谈或行为数据验证"
-        ],
-        risks: [
-          "真实搜索接入后可能改变竞品判断",
-          "评分模型需要后续校准",
-          "PRD 细节仍需结合真实用户反馈迭代"
-        ],
-        recommendations: [
-          "下一步接入真实搜索 API 并保留 Mock 回退",
-          "为每个竞品补充来源级证据",
-          "增加用户澄清答案对研究计划和 PRD 的影响"
-        ]
-      };
+      const judgeEvaluation = parseJudgeEvaluation(rawJudgeResult);
+      const evaluation = judgeEvaluation
+        ? mergeEvaluation(baseline, judgeEvaluation)
+        : baseline;
 
       return {
         evaluation,
-        rewriteRequired: totalScore < 75
+        rewriteRequired: evaluation.totalScore < 75
       };
     }
   });

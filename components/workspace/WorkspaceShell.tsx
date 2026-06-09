@@ -61,6 +61,7 @@ const allowedTraceNodes = new Set([
   "prdScopeAgent",
   "prdUserStoryAgent",
   "prdAcceptanceAgent",
+  "evaluationNode",
   "supplementalResearchPlannerAgent",
   "tool:mockSearch",
   "supplementalResearchSynthesisAgent"

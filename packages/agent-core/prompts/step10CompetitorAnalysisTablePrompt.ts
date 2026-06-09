@@ -56,5 +56,11 @@ export function buildPrompt(input: unknown): string {
 }
 
 输入：
+证据分层要求：
+- 对表格中的关键功能、渠道、语言、个性化能力和差异化判断生成 evidenceLayers。
+- layer 只能是 fact、inference、assumption。
+- fact 必须提供来源；未知能力必须标记为 assumption 或 needs_validation。
+- evidence 必须解释判断依据，sourceUrl 必须是可核验直达链接。
+
 ${JSON.stringify(input, null, 2)}`;
 }

@@ -122,9 +122,13 @@ model Evaluation {
   id                     String    @id @default(cuid())
   taskId                 String
   totalScore             Float
+  completenessScore      Float?
+  credibilityScore       Float?
+  differentiationScore   Float
+  developabilityScore    Float?
+  clarityScore           Float?
   marketScore            Float
   userPainScore          Float
-  differentiationScore   Float
   feasibilityScore       Float
   evidenceQualityScore   Float
   deductionReasonsJson   String

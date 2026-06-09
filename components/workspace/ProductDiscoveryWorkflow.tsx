@@ -1,10 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { EvaluationPanel } from "./EvaluationPanel";
 import type {
   AgentState,
   CompetitorIdentificationItem,
   DiscoveryClarificationQuestion,
+  LayeredEvidenceItem,
   ProductPersonaItem,
   ProductDiscoveryProfile,
   TargetUser
@@ -165,6 +167,12 @@ const mvpFeaturePriorityLabels: Record<string, string> = {
   could_have: "可选"
 };
 
+const evidenceLayerLabels: Record<LayeredEvidenceItem["layer"], string> = {
+  fact: "已验证事实",
+  inference: "分析推断",
+  assumption: "待验证假设"
+};
+
 const stepLabels = [
   { id: "raw", title: "原始想法" },
   { id: "targetUser", title: "目标用户识别" },
@@ -178,12 +186,17 @@ const stepLabels = [
   { id: "competitorTable", title: "竞品分析表" },
   { id: "userPersonas", title: "用户画像生成" },
   { id: "mvpPrd", title: "MVP PRD 生成" },
+  { id: "evaluation", title: "评测打分" },
   { id: "supplementalResearch", title: "多轮补充研究" }
 ] as const;
 
 type StepId = (typeof stepLabels)[number]["id"];
 
-function getStepStatus(profile: ProductDiscoveryProfile | null, stepId: StepId) {
+function getStepStatus(
+  profile: ProductDiscoveryProfile | null,
+  stepId: StepId,
+  hasEvaluation: boolean
+) {
   if (!profile) {
     return stepId === "raw" ? "已完成" : "未开始";
   }
@@ -216,6 +229,8 @@ function getStepStatus(profile: ProductDiscoveryProfile | null, stepId: StepId) 
       return profile.step11UserPersonas ? "已完成" : "未开始";
     case "mvpPrd":
       return profile.step12MvpPrd ? "已完成" : "未开始";
+    case "evaluation":
+      return hasEvaluation ? "已完成" : "未开始";
     case "supplementalResearch":
       return profile.supplementalResearch?.rounds.length
         ? `${profile.supplementalResearch.rounds.length}/2 轮`
@@ -225,9 +240,20 @@ function getStepStatus(profile: ProductDiscoveryProfile | null, stepId: StepId) 
   }
 }
 
-function getLatestStepId(profile: ProductDiscoveryProfile | null): StepId {
+function getLatestStepId(
+  profile: ProductDiscoveryProfile | null,
+  hasEvaluation = false
+): StepId {
   if (!profile) {
     return "raw";
+  }
+
+  if (hasEvaluation) {
+    return "evaluation";
+  }
+
+  if (profile.supplementalResearch?.rounds.length) {
+    return "supplementalResearch";
   }
 
   if (profile.step12MvpPrd) {
@@ -273,7 +299,10 @@ function getLatestStepId(profile: ProductDiscoveryProfile | null): StepId {
   return "targetUser";
 }
 
-function getNextActionLabel(profile: ProductDiscoveryProfile | null): string | null {
+function getNextActionLabel(
+  profile: ProductDiscoveryProfile | null,
+  evaluation: AgentState["evaluation"]
+): string | null {
   if (!profile) {
     return null;
   }
@@ -314,6 +343,19 @@ function getNextActionLabel(profile: ProductDiscoveryProfile | null): string | n
     return "运行 Step12：MVP PRD 生成";
   }
 
+  if (!evaluation) {
+    return "运行评测：审核产品发现结果";
+  }
+
+  if (
+    (evaluation.credibilityScore < 75 ||
+      evaluation.differentiationScore < 70 ||
+      evaluation.dimensionDetails.credibility.deductions.length > 0) &&
+    (profile.supplementalResearch?.rounds.length ?? 0) < 2
+  ) {
+    return "运行评测建议的补充研究";
+  }
+
   return null;
 }
 
@@ -344,6 +386,58 @@ function EmptyState({ text }: { text: string }) {
   return (
     <div className="rounded-md border border-dashed border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-500">
       {text}
+    </div>
+  );
+}
+
+function EvidenceLayerPanel({ items }: { items: LayeredEvidenceItem[] }) {
+  if (items.length === 0) {
+    return <EmptyState text="当前模块尚未生成来源级证据标记。" />;
+  }
+
+  return (
+    <div className="grid gap-3">
+      {items.map((item) => (
+        <article
+          key={item.id}
+          className="rounded-md border border-neutral-200 bg-neutral-50 p-4"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-white px-2 py-1 text-xs font-medium text-neutral-700">
+              {evidenceLayerLabels[item.layer]}
+            </span>
+            <span className="text-xs text-neutral-500">
+              {confidenceLabels[item.confidence]}
+            </span>
+            <span className="text-xs text-neutral-500">
+              {verificationStatusLabels[item.validationStatus]}
+            </span>
+          </div>
+          <p className="mt-3 text-sm font-medium text-neutral-950">{item.claim}</p>
+          <ul className="mt-2 grid gap-1 text-xs leading-5 text-neutral-600">
+            {item.evidence.map((evidence) => (
+              <li key={evidence}>- {evidence}</li>
+            ))}
+          </ul>
+          {item.sourceUrls.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {item.sourceUrls.map((url) => (
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-medium text-blue-700 hover:underline"
+                >
+                  查看来源
+                </a>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-xs text-amber-700">暂无可核验来源，需要补充研究。</p>
+          )}
+        </article>
+      ))}
     </div>
   );
 }
@@ -583,10 +677,13 @@ function QuestionInput({
   );
 }
 
-function useInitialStep(profile: ProductDiscoveryProfile | null): StepId {
+function useInitialStep(
+  profile: ProductDiscoveryProfile | null,
+  hasEvaluation: boolean
+): StepId {
   return useMemo(() => {
-    return getLatestStepId(profile);
-  }, [profile]);
+    return getLatestStepId(profile, hasEvaluation);
+  }, [profile, hasEvaluation]);
 }
 
 export function ProductDiscoveryWorkflow({
@@ -595,7 +692,7 @@ export function ProductDiscoveryWorkflow({
   onStateChange
 }: ProductDiscoveryWorkflowProps) {
   const profile = state.productDiscoveryProfile;
-  const initialStep = useInitialStep(profile);
+  const initialStep = useInitialStep(profile, Boolean(state.evaluation));
   const [activeStep, setActiveStep] = useState<StepId>(initialStep);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [isContinuingDiscovery, setIsContinuingDiscovery] = useState(false);
@@ -633,7 +730,9 @@ export function ProductDiscoveryWorkflow({
       const nextProfile = payload.data.state.productDiscoveryProfile;
 
       onStateChange(payload.data.state);
-      setActiveStep(getLatestStepId(nextProfile ?? null));
+      setActiveStep(
+        getLatestStepId(nextProfile ?? null, Boolean(payload.data.state.evaluation))
+      );
     } catch {
       setError("继续分析失败，请稍后重试。");
     } finally {
@@ -688,7 +787,12 @@ export function ProductDiscoveryWorkflow({
       }
 
       onStateChange(payload.data.state);
-      setActiveStep(getLatestStepId(payload.data.state.productDiscoveryProfile));
+      setActiveStep(
+        getLatestStepId(
+          payload.data.state.productDiscoveryProfile,
+          Boolean(payload.data.state.evaluation)
+        )
+      );
     } catch {
       setError("提交回答失败，请稍后重试。");
     } finally {
@@ -741,7 +845,10 @@ export function ProductDiscoveryWorkflow({
     currentProfile?.step10CompetitorAnalysisTable?.competitorAnalysisTable;
   const step11Personas = currentProfile?.step11UserPersonas?.userPersonas;
   const step12Prd = currentProfile?.step12MvpPrd?.mvpPrd;
-  const nextActionLabel = getNextActionLabel(currentProfile ?? null);
+  const nextActionLabel = getNextActionLabel(
+    currentProfile ?? null,
+    state.evaluation
+  );
   const supplementalResearch = currentProfile?.supplementalResearch;
   const supplementalResearchAvailable = canRunSupplementalResearch(
     currentProfile ?? null
@@ -770,7 +877,7 @@ export function ProductDiscoveryWorkflow({
               </span>
               {step.title}
               <span className="mt-1 block text-xs opacity-70">
-                {getStepStatus(currentProfile, step.id)}
+                {getStepStatus(currentProfile, step.id, Boolean(state.evaluation))}
               </span>
             </button>
           ))}
@@ -1694,7 +1801,10 @@ export function ProductDiscoveryWorkflow({
                   <h3 className="text-sm font-semibold text-neutral-950">
                     关键假设与待验证项
                   </h3>
-                  <div className="mt-2 grid gap-3 md:grid-cols-2">
+                  <div className="mt-3">
+                    <EvidenceLayerPanel items={step8Analysis.evidenceLayers ?? []} />
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
                     {step8Analysis.assumptions.map((assumption) => (
                       <article
                         key={assumption.id}
@@ -1840,7 +1950,12 @@ export function ProductDiscoveryWorkflow({
                   <h3 className="text-sm font-semibold text-neutral-950">
                     后续研究缺口
                   </h3>
-                  <ul className="mt-2 grid gap-2 text-sm text-neutral-700">
+                  <div className="mt-3">
+                    <EvidenceLayerPanel
+                      items={step9Identification.evidenceLayers ?? []}
+                    />
+                  </div>
+                  <ul className="mt-4 grid gap-2 text-sm text-neutral-700">
                     {step9Identification.researchGaps.map((gap) => (
                       <li key={gap} className="rounded-md bg-neutral-50 p-3">
                         {gap}
@@ -1982,7 +2097,10 @@ export function ProductDiscoveryWorkflow({
                   </div>
                   <div className="rounded-md bg-neutral-50 p-4">
                     <h3 className="text-sm font-semibold text-neutral-950">研究缺口</h3>
-                    <ul className="mt-3 grid gap-2 text-sm text-neutral-700">
+                    <div className="mt-3">
+                      <EvidenceLayerPanel items={step10Table.evidenceLayers ?? []} />
+                    </div>
+                    <ul className="mt-4 grid gap-2 text-sm text-neutral-700">
                       {step10Table.researchGaps.map((item) => (
                         <li key={item}>• {item}</li>
                       ))}
@@ -2260,6 +2378,10 @@ export function ProductDiscoveryWorkflow({
               <EmptyState text="完成用户画像后将生成结构化 MVP PRD。" />
             )}
           </SectionCard>
+        ) : null}
+
+        {activeStep === "evaluation" ? (
+          <EvaluationPanel evaluation={state.evaluation} />
         ) : null}
 
         {activeStep === "supplementalResearch" ? (

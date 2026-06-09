@@ -4,19 +4,29 @@ AI Product Discover / 智研产品发现 Agent 是一个面向 AI 产品经理�
 
 它的目标是把一个产品想法转化为结构化的产品发现结果：需求澄清、研究计划、竞品分析、用户画像、MVP PRD、页面结构、评测打分、Trace 和导出内容。
 
-当前版本默认使用 Mock LLM 和 Mock Search，保证没有 API Key 也能本地跑通完整流程。真实 OpenAI Provider 和通用 Search Provider 的代码结构已经预留，但默认不启用。
+当前版本默认使用 Mock LLM 和 Mock Search，保证没有 API Key 也能本地跑通完整流程。DeepSeek Provider、OpenAI Provider 和通用 Search Provider 的代码结构已经预留，但默认不启用。
+
+## 当前版本进展
+
+- 前端工作台支持由用户逐步触发产品发现步骤，避免一次运行完整链路造成长时间等待。
+- 产品发现链路已覆盖目标用户、场景与问题、需求澄清、研究计划、行业市场、竞品识别、竞品分析表、用户画像和 MVP PRD。
+- 行业市场、竞品识别和竞品分析表支持 `fact`、`inference`、`assumption` 三层证据标记。
+- 五维评测覆盖完整性、可信度、差异化、可开发性和表达清晰度。
+- 评测结果可根据可信度和差异化缺口建议补充研究，最多执行两轮搜索，再由用户触发重新评测。
 
 ## 核心功能
 
 - 产品想法输入
 - 需求澄清
 - 研究计划
-- Mock 搜索与证据摘要
-- 竞品分析
+- Mock 搜索、多轮补充研究与证据摘要
+- 行业与市场初步分析
+- 竞品识别与竞品分析表
+- 事实 / 推断 / 假设分层
 - 用户画像
 - MVP PRD
 - 页面结构
-- 评测打分
+- 五维评测打分与研究闭环
 - Agent Trace
 - Markdown / JSON / Mermaid 导出
 - Prisma SQLite 持久化
@@ -28,6 +38,7 @@ AI Product Discover / 智研产品发现 Agent 是一个面向 AI 产品经理�
 - TypeScript
 - Agent State Machine
 - Mock LLM Provider
+- DeepSeek Provider 代码结构，默认关闭
 - OpenAI Provider 代码结构，默认关闭
 - Tool Registry
 - Mock Search Provider
@@ -40,35 +51,25 @@ AI Product Discover / 智研产品发现 Agent 是一个面向 AI 产品经理�
 
 ```mermaid
 flowchart TD
-  A[Product Idea Input] --> B[createInitialAgentState]
-  B --> C[inputParserNode]
-  C --> D[clarificationNode]
-  D --> E{autoAnswerClarification?}
-  E -->|true| F[Mock Clarification Answers]
-  E -->|false| W[Wait for User Answers]
-  F --> G[contextUpdateNode]
-  G --> H[researchPlannerNode]
-  H --> I[searchQueryNode]
-  I --> J[researchExecutorNode]
-  J --> K[Tool Registry]
-  K --> L[Mock Search Provider]
-  K --> M[Generic Search Provider - optional]
-  L --> N[evidenceExtractorNode]
-  M --> N
-  N --> O{Evidence sufficient?}
-  O -->|no, max 2 retries| I
-  O -->|yes| P[competitorAnalystNode]
-  P --> Q[personaNode]
-  Q --> R[prdWriterNode]
-  R --> S[pageStructureNode]
-  S --> T[evaluationNode]
-  T --> U{Score passed?}
-  U -->|no, max 1 rewrite| V[rewriteNode]
-  V --> X[exportNode]
-  U -->|yes| X
-  X --> Y[Markdown / JSON / Mermaid Export]
-  Y --> Z[saveAgentRunResult]
-  Z --> DB[(Prisma SQLite)]
+  A[输入产品想法] --> B[目标用户识别]
+  B --> C[场景与问题识别]
+  C --> D[需求澄清与结果修正]
+  D --> E[研究计划]
+  E --> F[行业市场分析]
+  F --> G[竞品识别]
+  G --> H[竞品分析表]
+  H --> I[用户画像]
+  I --> J[MVP PRD]
+  F --> K[事实 / 推断 / 假设分层]
+  G --> K
+  H --> K
+  J --> L[五维评测]
+  K --> L
+  L --> M{需要补充研究?}
+  M -->|是，最多两轮| N[补充搜索与研究综合]
+  N --> L
+  M -->|否| O[导出与持久化]
+  O --> P[(Prisma SQLite)]
 ```
 
 ## 本地启动
@@ -103,6 +104,12 @@ OPENAI_MODEL_DEFAULT=
 OPENAI_MODEL_EVAL=
 USE_MOCK_LLM=true
 
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL_DEFAULT=deepseek-v4-flash
+DEEPSEEK_MODEL_PRD=deepseek-v4-flash
+DEEPSEEK_MODEL_EVAL=deepseek-v4-pro
+
 USE_MOCK_SEARCH=true
 SEARCH_API_KEY=
 SEARCH_API_ENDPOINT=
@@ -115,6 +122,9 @@ SEARCH_API_ENDPOINT=
 - `OPENAI_API_KEY`：只有在 `USE_MOCK_LLM=false` 且提供 API Key 时才会尝试真实 OpenAI 调用。
 - `OPENAI_MODEL_DEFAULT`：默认模型名称。
 - `OPENAI_MODEL_EVAL`：评测节点可使用的模型名称。
+- `DEEPSEEK_API_KEY`：DeepSeek API Key，不应提交到仓库。
+- `DEEPSEEK_BASE_URL`：DeepSeek API 基础地址。
+- `DEEPSEEK_MODEL_DEFAULT` / `DEEPSEEK_MODEL_PRD` / `DEEPSEEK_MODEL_EVAL`：不同节点使用的 DeepSeek 模型。
 - `USE_MOCK_SEARCH=true`：默认使用 Mock Search。
 - `SEARCH_API_KEY` / `SEARCH_API_ENDPOINT`：Generic Search Provider 的通用配置，当前不绑定具体厂商。
 
@@ -125,17 +135,19 @@ SEARCH_API_ENDPOINT=
 1. 打开 `http://localhost:3000`
 2. 输入产品想法，或点击示例输入
 3. 点击“开始产品发现”
-4. 系统会同步运行 Agent
-5. 完成后进入项目工作台
-6. 查看产品理解、澄清问题、研究计划、证据摘要、竞品分析、用户画像、MVP PRD、页面结构、评测结果和导出内容
+4. 系统先运行目标用户识别并进入项目工作台
+5. 在工作台中逐步触发场景分析、需求澄清、研究、竞品、画像、PRD 与评测
+6. 在行业与竞品模块查看事实、推断和待验证假设
+7. 当评测发现可信度或差异化不足时，按建议触发补充研究
 
 ### 方式 2：命令行 Demo
 
 ```bash
 npm run demo:agent
+npm run validate:evaluation
 ```
 
-该命令会使用 Mock LLM 和 Mock Search 跑完整 Agent 状态机，并在控制台输出 PRD、页面结构、评分和 Mermaid 页面流转图。
+`demo:agent` 使用 Mock LLM 和 Mock Search 跑 Agent 状态机；`validate:evaluation` 验证五维评分和补充研究触发规则。
 
 ## 数据持久化
 
@@ -165,12 +177,13 @@ npm run demo:agent
 - 每个节点和工具调用都可以进入 Trace。
 - Tool Registry 把搜索、导出、Mermaid 等能力与 Agent 编排解耦。
 - Mock Provider 保证无 API Key 可运行，真实 Provider 通过接口逐步替换。
-- 评测节点形成产品发现闭环，而不仅是生成文档。
+- 关键市场与竞品结论区分事实、推断和待验证假设，避免把模型判断直接当作事实。
+- 五维评测会将可信度和差异化缺口反馈给多轮搜索，形成研究闭环。
 - Prisma 持久化保存项目、任务、状态快照、生成物、版本、来源、评测和 Trace。
 
 ## Roadmap
 
-- 接真实 OpenAI Provider，并让节点输出严格匹配 Zod Schema
+- 完善真实 DeepSeek / OpenAI Provider 的生产级调用与回归评测
 - 接真实 Search API，并完善来源质量评估
 - 支持网页阅读与引用级证据追踪
 - Figma 导出
@@ -185,5 +198,6 @@ npm run demo:agent
 - 默认不调用真实 OpenAI。
 - 默认不调用真实搜索 API。
 - Mock Search 结果不能代表真实市场事实。
+- Mock 来源不会被标记为已验证事实；真实来源仍需人工审核或可靠来源验证。
 - 当前没有登录系统，使用 mock user。
 - 当前 Agent API 为同步返回，尚未实现 SSE。

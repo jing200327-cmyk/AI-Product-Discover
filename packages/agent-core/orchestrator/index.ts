@@ -18,6 +18,7 @@ export {
   continueProductDiscoveryWorkflow,
   runProductDiscoveryStartWorkflow,
   runSupplementalResearchRound,
+  shouldTriggerSupplementalResearchFromEvaluation,
   runProductDiscoveryWorkflow
 } from "./runProductDiscoveryWorkflow";
 export type {

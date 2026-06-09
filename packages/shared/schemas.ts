@@ -580,6 +580,19 @@ export const IndustryBackgroundSchema = z
   })
   .strict();
 
+export const LayeredEvidenceItemSchema = z
+  .object({
+    id: NonEmptyTextSchema,
+    claim: NonEmptyTextSchema,
+    layer: z.enum(["fact", "inference", "assumption"]),
+    evidence: z.array(NonEmptyTextSchema),
+    sourceIds: z.array(NonEmptyTextSchema),
+    sourceUrls: z.array(z.string().url()),
+    confidence: ConfidenceLevelSchema,
+    validationStatus: z.enum(["verified", "inferred", "needs_validation"])
+  })
+  .strict();
+
 export const TargetMarketSchema = z
   .object({
     primaryUsers: z.array(NonEmptyTextSchema),
@@ -661,6 +674,7 @@ export const Step8MarketAnalysisResultSchema = z
         userDemands: z.array(MarketUserDemandSchema).min(1),
         opportunities: z.array(MarketOpportunitySchema).min(1),
         assumptions: z.array(MarketAssumptionSchema),
+        evidenceLayers: z.array(LayeredEvidenceItemSchema).optional(),
         confidence: ConfidenceLevelSchema
       })
       .strict()
@@ -715,6 +729,7 @@ export const Step9CompetitorIdentificationResultSchema = z
         substituteSolutions: z.array(CompetitorIdentificationItemSchema),
         differentiationOpportunities: z.array(DifferentiationOpportunitySchema),
         researchGaps: z.array(NonEmptyTextSchema),
+        evidenceLayers: z.array(LayeredEvidenceItemSchema).optional(),
         confidence: ConfidenceLevelSchema
       })
       .strict()
@@ -760,6 +775,7 @@ export const Step10CompetitorAnalysisTableResultSchema = z
         keyFindings: z.array(NonEmptyTextSchema),
         recommendedFocus: z.array(NonEmptyTextSchema),
         researchGaps: z.array(NonEmptyTextSchema),
+        evidenceLayers: z.array(LayeredEvidenceItemSchema).optional(),
         confidence: ConfidenceLevelSchema
       })
       .strict()
@@ -881,6 +897,7 @@ export const SupplementalResearchQuerySchema = z
       "low_confidence",
       "assumption",
       "competitor_gap",
+      "evaluation_gap",
       "manual_followup"
     ])
   })
@@ -1566,14 +1583,34 @@ export const PageSpecSchema = z
   })
   .strict() satisfies z.ZodType<PageSpec>;
 
+export const EvaluationDimensionResultSchema = z
+  .object({
+    score: ScoreSchema,
+    weight: z.number().int().min(1).max(100),
+    rationale: NonEmptyTextSchema,
+    deductions: z.array(NonEmptyTextSchema),
+    recommendations: z.array(NonEmptyTextSchema)
+  })
+  .strict();
+
 export const EvaluationResultSchema = z
   .object({
     totalScore: ScoreSchema,
-    marketScore: ScoreSchema,
-    userPainScore: ScoreSchema,
+    completenessScore: ScoreSchema,
+    credibilityScore: ScoreSchema,
     differentiationScore: ScoreSchema,
-    feasibilityScore: ScoreSchema,
-    evidenceQualityScore: ScoreSchema,
+    developabilityScore: ScoreSchema,
+    clarityScore: ScoreSchema,
+    dimensionDetails: z
+      .object({
+        completeness: EvaluationDimensionResultSchema,
+        credibility: EvaluationDimensionResultSchema,
+        differentiation: EvaluationDimensionResultSchema,
+        developability: EvaluationDimensionResultSchema,
+        clarity: EvaluationDimensionResultSchema
+      })
+      .strict(),
+    graderMode: z.enum(["deterministic", "hybrid"]),
     strengths: z.array(NonEmptyTextSchema),
     deductionReasons: z.array(NonEmptyTextSchema),
     risks: z.array(NonEmptyTextSchema),
