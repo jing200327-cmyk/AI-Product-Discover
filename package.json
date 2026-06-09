@@ -1,0 +1,38 @@
+{
+  "name": "ai-product-discover",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "validate:state": "tsx packages/agent-core/state/createInitialState.spec.ts",
+    "demo:mock-agent": "tsx packages/agent-core/demo/runMockAgent.ts",
+    "demo:agent": "tsx packages/agent-core/demo/runOrchestratedAgent.ts",
+    "test:deepseek": "tsx packages/agent-core/demo/testDeepSeekProvider.ts",
+    "eval:user-identification": "tsx evals/user-identification/run.ts",
+    "db:push": "prisma db push --skip-generate",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "next": "^16.2.6",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.6",
+    "postcss": "^8.5.15",
+    "prisma": "^6.19.3",
+    "tailwindcss": "^4.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}

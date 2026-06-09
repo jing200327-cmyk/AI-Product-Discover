@@ -1,0 +1,178 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String?   @unique
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  projects  Project[]
+}
+
+model Project {
+  id          String      @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks       AgentTask[]
+  artifacts   Artifact[]
+
+  @@index([userId])
+}
+
+model AgentTask {
+  id             String               @id @default(cuid())
+  projectId      String
+  runId          String               @unique
+  inputIdea      String
+  status         String
+  stage          String
+  startedAt      DateTime             @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  project        Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stateSnapshots AgentStateSnapshot[]
+  artifacts      Artifact[]
+  sources        Source[]
+  evaluations    Evaluation[]
+  traceEvents    TraceEvent[]
+  feedbackCases  FeedbackCase[]
+
+  @@index([projectId])
+  @@index([status])
+}
+
+model AgentStateSnapshot {
+  id        String    @id @default(cuid())
+  taskId    String
+  stage     String
+  stateJson String
+  createdAt DateTime  @default(now())
+  task      AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([stage])
+}
+
+model Artifact {
+  id          String            @id @default(cuid())
+  projectId   String
+  taskId      String?
+  type        String
+  title       String
+  content     String
+  format      String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task        AgentTask?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  versions    ArtifactVersion[]
+
+  @@index([projectId])
+  @@index([taskId])
+  @@index([type])
+}
+
+model ArtifactVersion {
+  id         String   @id @default(cuid())
+  artifactId String
+  version    Int
+  content    String
+  metadata   String?
+  createdAt  DateTime @default(now())
+  artifact   Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@unique([artifactId, version])
+  @@index([artifactId])
+}
+
+model Source {
+  id             String    @id @default(cuid())
+  taskId         String
+  sourceKey      String
+  title          String
+  url            String?
+  sourceType     String
+  publisher      String?
+  publishedAt    DateTime?
+  accessedAt     DateTime
+  summary        String
+  relevanceScore Float
+  rawJson        String?
+  createdAt      DateTime  @default(now())
+  task           AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, sourceKey])
+  @@index([taskId])
+  @@index([sourceType])
+}
+
+model Evaluation {
+  id                     String    @id @default(cuid())
+  taskId                 String
+  totalScore             Float
+  marketScore            Float
+  userPainScore          Float
+  differentiationScore   Float
+  feasibilityScore       Float
+  evidenceQualityScore   Float
+  deductionReasonsJson   String
+  recommendationsJson    String
+  resultJson             String
+  createdAt              DateTime  @default(now())
+  task                   AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([totalScore])
+}
+
+model TraceEvent {
+  id         String    @id @default(cuid())
+  taskId     String
+  traceId    String
+  runId      String
+  stage      String
+  nodeName   String
+  status     String
+  inputJson  String
+  outputJson String
+  startedAt  DateTime
+  endedAt    DateTime?
+  durationMs Int?
+  errorJson  String?
+  createdAt  DateTime  @default(now())
+  task       AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, traceId])
+  @@index([taskId])
+  @@index([runId])
+  @@index([stage])
+  @@index([nodeName])
+}
+
+model FeedbackCase {
+  id          String    @id @default(cuid())
+  taskId      String?
+  projectId   String?
+  rating      Int?
+  label       String?
+  comment     String?
+  payloadJson String
+  createdAt   DateTime  @default(now())
+  task        AgentTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([projectId])
+  @@index([label])
+}
